@@ -1,0 +1,13 @@
+# Compiled executables and debugging symbols
+*.o
+pgn_processor
+pgn_processor_dbg
+*.dSYM/
+
+# Data files (input/output)
+*.pgn
+*.bin
+stats_report.json
+
+# macOS specific files
+.DS_Store
