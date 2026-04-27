@@ -54,7 +54,7 @@ void init_lookup_tables() {
 
         for (auto& move : king_moves) {
             int add_f = file + move[0];
-            int add_r = file + move[1];
+            int add_r = rank + move[1];
 
             if (add_f >= 0 && add_f < 8 && add_r >= 0 && add_r < 8) {
                 int set_sq = add_r * 8 + add_f;
@@ -110,7 +110,7 @@ void init_ray_masks() {
 
 uint64_t get_occupancy_board(const BoardState &board) {
     uint64_t occ = 0ULL;
-    for (int i = 0; i < 14; i++) {
+    for (int i = 0; i < 12; i++) {
         occ |= board.bitboards[i];
     }
     return occ;

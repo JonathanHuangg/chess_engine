@@ -34,7 +34,7 @@ Collation ties it into a batched tensor. Pytorch has collate_fn but it's slow. W
 numpy tuples so we can just build a custom one. 
 create a custom collation that takes the tuples, do numpy stack, and convert to a tensor
 
-3) Bit unpacker - we grab 14 integers/bitboards. Resnet doesn't know what that is. 
+3) Bit unpacker - we grab 18 integers/bitboards. Resnet doesn't know what that is. 
 It needs a 2D spatial grid of floating point numbers. We can reshape in a 8x8 float tensor. 
 We can dump this to the GPU and use bitwise math. 
 no need for sparse overhead or anything too crazy. 
@@ -63,7 +63,7 @@ Value Head: Conv(1x1, 1 channel) -> BN -> ReLU -> Flatten -> Linear(64, 256) -> 
 
 9) ONNX export
 
-create a dummy tensor (1, 14, 8, 8). export the model and run validation
+create a dummy tensor (1, 18, 8, 8). export the model and run validation
 
 """
 import os

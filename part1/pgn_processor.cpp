@@ -68,9 +68,7 @@ std::vector<std::string_view> extract_moves(std::string_view game_text) {
 }
 
 
-// ==========================================
 // FILE I/O
-// ==========================================
 std::string read_file(const std::string& filepath) {
     std::ifstream in(filepath, std::ios::in | std::ios::binary);
     if (!in) {
@@ -98,7 +96,6 @@ void worker_thread(int thread_id, const std::vector<std::string_view>& chunks, T
     std::string out_filepath = "chunk_" + std::to_string(thread_id) + ".bin";
     std::ofstream out_bin(out_filepath, std::ios::binary | std::ios::trunc); 
 
-    // WRITE BUFFER (HPC Optimization to avoid unbuffered syscalls)
     std::vector<TrainingSample> write_buffer;
     write_buffer.reserve(8192); // ~1MB chunking
 
@@ -125,7 +122,6 @@ void worker_thread(int thread_id, const std::vector<std::string_view>& chunks, T
             set_starting_position(current_board);
             int color = WHITE; 
 
-            // STATE TRACKERS (Crucial for RL Markov Property)
             bool w_k_castle = true;
             bool w_q_castle = true;
             bool b_k_castle = true;
@@ -211,10 +207,15 @@ void worker_thread(int thread_id, const std::vector<std::string_view>& chunks, T
                         if (dis >= 'a' && dis <= 'h') candidates &= FILE_MASKS[dis - 'a'];
                         else if (dis >= '1' && dis <= '8') candidates &= RANK_MASKS[dis - '1'];
                     }
+                    if (candidates == 0) {
+                        std::cerr << "Warning: no source square found for move '" 
+                                  << move << "', skipping.\n";
+                        continue;
+                    }
                     source_sq = __builtin_ctzll(candidates);
                 }
 
-                // --- PHASE 2: SERIALIZATION TO TRAINING SAMPLE ---
+                // turn to traingsample
                 TrainingSample sample;
                 
                 // Copy & Flip Bitboards
@@ -228,15 +229,25 @@ void worker_thread(int thread_id, const std::vector<std::string_view>& chunks, T
 
                 // Write Metadata Planes (12 = Turn, 13 = Rights)
                 sample.state.bitboards[12] = (color == WHITE) ? 0xFFFFFFFFFFFFFFFFULL : 0ULL;
+
+                // if I am white, we castle if the white king/queen castles
+                bool my_king_castle = (color == WHITE) ? w_k_castle : b_k_castle;
+                bool my_queen_castle = (color == WHITE) ? w_q_castle : b_q_castle;
+                bool enemy_king_castle = (color == WHITE) ? b_k_castle : w_k_castle;
+                bool enemy_king_castle = (color == WHITE) ? b_q_castle : w_q_castle;
                 
-                uint64_t meta_plane = 0ULL;
-                if (w_q_castle) meta_plane |= (1ULL << 0);
-                if (w_k_castle) meta_plane |= (1ULL << 7);
-                if (b_q_castle) meta_plane |= (1ULL << 56);
-                if (b_k_castle) meta_plane |= (1ULL << 63);
-                if (ep_square != -1) meta_plane |= (1ULL << ep_square);
-                
-                sample.state.bitboards[13] = (color == WHITE) ? meta_plane : flip_bitboard_vertical(meta_plane);
+                // if I castle, set to 1s else 0
+                sample.state.bitboards[13] = my_king_castle ? 0xFFFFFFFFFFFFFFFFULL : 0LL;
+                sample.state.bitboards[14] = my_queen_castle ? 0xFFFFFFFFFFFFFFFFULL : 0LL;
+                sample.state.bitboards[15] = enemy_king_castle ? 0xFFFFFFFFFFFFFFFFULL : 0LL;
+                sample.state.bitboards[16] = enemy_king_castle ? 0xFFFFFFFFFFFFFFFFULL : 0LL;
+
+                // em passant square
+                sample.state.bitboards[17] = 0Ull;
+                if (ep_sq != -1) {
+                    uint64_t ep_board = (1ULL << ep_sq);
+                    sample.state.bitboards[17] = (color == WHITE) ? ep_board : flip_bitboard_vertical(ep_board);
+                }
 
                 // Set Labels 
                 sample.result = (color == WHITE) ? absolute_result : (absolute_result * -1.0f);
@@ -327,9 +338,7 @@ void worker_thread(int thread_id, const std::vector<std::string_view>& chunks, T
     my_stats->wall_time_sec = std::chrono::duration<double>(t_end - t_start).count();
 }
 
-// ==========================================
 // MAIN ORCHESTRATOR
-// ==========================================
 namespace fs = std::filesystem;
 std::vector<std::string> get_pgn_files(const std::string &folder_path) {
     std::vector<std::string> files; 

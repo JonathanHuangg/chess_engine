@@ -14,14 +14,35 @@
 #define KNIGHT 4
 #define ROOK 5
 
+/*
+0 = white pawn
+1 = white queen
+2 = white king
+3 = white bishop
+4 = white knight
+5 = white rook
 
+6 = black pawn
+7 = black queen
+8 = black king
+9 = black bishop
+10 = black knight
+11 = black rook
+
+12 = white on move/Black on move (1s or 0s)
+13 = white king side castling
+14 = white queen side castling
+15 = black king side castling
+16 = black queen side castling
+17 = em_passant square (1s or 0s)
+*/
 struct BoardState {
-    uint64_t bitboards[14]; // each piece has its own board. 14 planes * 8 bytes = 112 bytes
+    uint64_t bitboards[18];
 };
 
 struct TrainingSample {
-    BoardState state; // 112 bytes
-    float result; // 4 bytes
+    BoardState state;
+    float result;
     int16_t move_idx; // 2 bytes
     int16_t padding; // 2 bytes
 };
