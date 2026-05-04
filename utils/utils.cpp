@@ -200,7 +200,7 @@ void init_pawn_attacks() {
     }
 }
 void set_starting_position(BoardState &board) {  
-    for (int i = 0; i < 14; i++) {
+    for (int i = 0; i < 18; i++) {
         board.bitboards[i] = 0ULL;
     }
 

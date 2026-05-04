@@ -83,7 +83,7 @@ class ChessBrainResNet(nn.Module):
 
         return policy_logits, value
 
-def train_loop(dataloader, model, epochs):
+def train_loop(dataloader, model, epochs, value_weight=1.0):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = model.to(device)
 
@@ -107,10 +107,12 @@ def train_loop(dataloader, model, epochs):
 
             value_loss = F.mse_loss(values.squeeze(-1), results)
             policy_loss = F.cross_entropy(policy_logits, move_idxs)
-            loss = value_loss + policy_loss 
+
+            # weight value loss to prevent policy gradients from dominating
+            loss = (value_weight * value_loss) + policy_loss 
 
             loss.backward()
             optimizer.step()
 
             if batch_idx % 100 == 0:
-                print(f"Epoch: {epoch} | Batch: {batch_idx} | Loss: {loss.item():.4f}")
+                print(f"Epoch: {epoch} | Batch: {batch_idx} | V: {value_loss.item():.4f} | P: {policy_loss.item():.4f} | Loss: {loss.item():.4f}")

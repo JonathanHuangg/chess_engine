@@ -219,11 +219,16 @@ void worker_thread(int thread_id, const std::vector<std::string_view>& chunks, T
                 TrainingSample sample;
                 
                 // Copy & Flip Bitboards
-                for (int i = 0; i < 12; ++i) {
-                    if (color == WHITE) {
-                        sample.state.bitboards[i] = current_board.bitboards[i];
-                    } else {
-                        sample.state.bitboards[i] = flip_bitboard_vertical(current_board.bitboards[i]);
+                // Planes 0-5 = current player's pieces, 6-11 = opponent's pieces
+                if (color == WHITE) {
+                    for (int i = 0; i < 6; ++i) {
+                        sample.state.bitboards[i] = current_board.bitboards[WHITE * 6 + i]; // my pieces
+                        sample.state.bitboards[6 + i] = current_board.bitboards[BLACK * 6 + i]; // enemy
+                    }
+                } else {
+                    for (int i = 0; i < 6; ++i) {
+                        sample.state.bitboards[i] = flip_bitboard_vertical(current_board.bitboards[BLACK * 6 + i]); // my pieces
+                        sample.state.bitboards[6 + i] = flip_bitboard_vertical(current_board.bitboards[WHITE * 6 + i]); // enemy
                     }
                 }
 
