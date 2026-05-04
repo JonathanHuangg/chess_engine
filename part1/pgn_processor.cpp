@@ -234,18 +234,18 @@ void worker_thread(int thread_id, const std::vector<std::string_view>& chunks, T
                 bool my_king_castle = (color == WHITE) ? w_k_castle : b_k_castle;
                 bool my_queen_castle = (color == WHITE) ? w_q_castle : b_q_castle;
                 bool enemy_king_castle = (color == WHITE) ? b_k_castle : w_k_castle;
-                bool enemy_king_castle = (color == WHITE) ? b_q_castle : w_q_castle;
+                bool enemy_queen_castle = (color == WHITE) ? b_q_castle : w_q_castle;
                 
                 // if I castle, set to 1s else 0
                 sample.state.bitboards[13] = my_king_castle ? 0xFFFFFFFFFFFFFFFFULL : 0LL;
                 sample.state.bitboards[14] = my_queen_castle ? 0xFFFFFFFFFFFFFFFFULL : 0LL;
                 sample.state.bitboards[15] = enemy_king_castle ? 0xFFFFFFFFFFFFFFFFULL : 0LL;
-                sample.state.bitboards[16] = enemy_king_castle ? 0xFFFFFFFFFFFFFFFFULL : 0LL;
+                sample.state.bitboards[16] = enemy_queen_castle ? 0xFFFFFFFFFFFFFFFFULL : 0LL;
 
                 // em passant square
-                sample.state.bitboards[17] = 0Ull;
-                if (ep_sq != -1) {
-                    uint64_t ep_board = (1ULL << ep_sq);
+                sample.state.bitboards[17] = 0ULL;
+                if (ep_square != -1) {
+                    uint64_t ep_board = (1ULL << ep_square);
                     sample.state.bitboards[17] = (color == WHITE) ? ep_board : flip_bitboard_vertical(ep_board);
                 }
 

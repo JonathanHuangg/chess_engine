@@ -50,33 +50,61 @@ struct TrainingSample {
 // for black, you want to transition it to white so you have to flip it
 // need to add in 
 inline int16_t encode_move_flipped(int src_sq, int dest_sq, int color, int promo_piece) {
-
     if (color == BLACK) {
         src_sq = src_sq ^ 56;
         dest_sq = dest_sq ^ 56;
     }
     
-    if (promo_piece == -1 || promo_piece == QUEEN) {
-        return (int16_t)((src_sq * 64) + dest_sq);
-    }
-
-    int file_from = src_sq % 8;
-    int file_to = dest_sq % 8;
+    int src_x = src_sq % 8;
+    int src_y = src_sq / 8;
+    int dest_x = dest_sq % 8;
+    int dest_y = dest_sq / 8;
     
-    int direction = file_to - file_from + 1;
-
-    int piece_offset = 0;
-    if (promo_piece == KNIGHT) {
-        piece_offset = 0;
-    } else if (promo_piece == BISHOP) {
-        piece_offset = 1;
-    } else if (promo_piece == ROOK) {
-        piece_offset = 2;
-    }
-
-    int underpromo_index = (piece_offset * 24) + (file_from * 3) + direction;
+    int dx = dest_x - src_x;
+    int dy = dest_y - src_y;
     
-    return (int16_t)(4096 + underpromo_index);
+    int move_type = -1;
+    
+    if (promo_piece == KNIGHT || promo_piece == BISHOP || promo_piece == ROOK) {
+        int dir_idx = 0; // straight
+        if (dx == -1) dir_idx = 1; // capture left
+        else if (dx == 1) dir_idx = 2; // capture right
+        
+        int p_idx = 0;
+        if (promo_piece == BISHOP) p_idx = 1;
+        else if (promo_piece == ROOK) p_idx = 2;
+        
+        move_type = 64 + (p_idx * 3) + dir_idx;
+    } else {
+        int abs_dx = dx > 0 ? dx : -dx;
+        int abs_dy = dy > 0 ? dy : -dy;
+
+        if (abs_dx > 0 && abs_dy > 0 && abs_dx + abs_dy == 3) {
+            if (dx == 1 && dy == 2) move_type = 56;
+            else if (dx == 2 && dy == 1) move_type = 57;
+            else if (dx == 2 && dy == -1) move_type = 58;
+            else if (dx == 1 && dy == -2) move_type = 59;
+            else if (dx == -1 && dy == -2) move_type = 60;
+            else if (dx == -2 && dy == -1) move_type = 61;
+            else if (dx == -2 && dy == 1) move_type = 62;
+            else if (dx == -1 && dy == 2) move_type = 63;
+        } else {
+            int dir_idx = -1;
+            if (dx == 0 && dy > 0) dir_idx = 0; // N
+            else if (dx > 0 && dy > 0) dir_idx = 1; // NE
+            else if (dx > 0 && dy == 0) dir_idx = 2; // E
+            else if (dx > 0 && dy < 0) dir_idx = 3; // SE
+            else if (dx == 0 && dy < 0) dir_idx = 4; // S
+            else if (dx < 0 && dy < 0) dir_idx = 5; // SW
+            else if (dx < 0 && dy == 0) dir_idx = 6; // W
+            else if (dx < 0 && dy > 0) dir_idx = 7; // NW
+            
+            int dist = (abs_dx > abs_dy) ? abs_dx : abs_dy;
+            move_type = dir_idx * 7 + (dist - 1);
+        }
+    }
+    
+    return (int16_t)((src_sq * 73) + move_type);
 }
 
 inline uint64_t flip_bitboard_vertical(uint64_t b) {
