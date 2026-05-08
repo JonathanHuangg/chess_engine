@@ -43,14 +43,14 @@ std::vector<std::string_view> extract_moves(std::string_view game_text) {
             continue;
         }
 
-        if (std::isspace(c)) {
+        if (std::isspace(static_cast<unsigned char>(c))) {
             pos++;
             continue;
         }
 
         // We are at the start of a valid token
         size_t end_pos = pos;
-        while (end_pos < length && !std::isspace(game_text[end_pos]) && 
+        while (end_pos < length && !std::isspace(static_cast<unsigned char>(game_text[end_pos])) && 
                game_text[end_pos] != '{' && game_text[end_pos] != '(' && game_text[end_pos] != '[') {
             end_pos++;
         }
@@ -58,9 +58,10 @@ std::vector<std::string_view> extract_moves(std::string_view game_text) {
         std::string_view token = game_text.substr(pos, end_pos - pos);
         pos = end_pos;
 
-        // Disregard move numbers and game results
+        // Disregard move numbers, game results, and NAGs
         if (token.find('.') != std::string_view::npos) continue;
         if (token == "1-0" || token == "0-1" || token == "1/2-1/2" || token == "*") continue;
+        if (!token.empty() && token[0] == '$') continue;
 
         clean_moves.push_back(token);
     }
@@ -149,7 +150,7 @@ void worker_thread(int thread_id, const std::vector<std::string_view>& chunks, T
                     dest_sq = k_dest;
                 } else {
                     int len = move.length();
-                    while (len > 0 && (move[len-1] == '+' || move[len-1] == '#')) len--;
+                    while (len > 0 && (move[len-1] == '+' || move[len-1] == '#' || move[len-1] == '!' || move[len-1] == '?')) len--;
                     std::string_view clean_move = move.substr(0, len);
 
                     if (clean_move.find('=') != std::string_view::npos) {
@@ -371,6 +372,7 @@ int main() {
     int num_threads = std::thread::hardware_concurrency();
     if (num_threads <= 0) num_threads = 16; 
     std::string pgn_folder = "../pgn";
+    if (!fs::exists(pgn_folder)) pgn_folder = "pgn";
     std::vector<std::string> files = get_pgn_files(pgn_folder);
     
     if (files.empty()) {

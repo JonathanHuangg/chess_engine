@@ -133,22 +133,7 @@ def fast_collate(batch):
         torch.from_numpy(move_idxs_np)
     )
 
-if __name__ == '__main__':
-    binaries = ["chunk_0.bin", "chunk_1.bin", "chunk_2.bin", "chunk_3.bin", 
-    "chunk_4.bin", "chunk_5.bin", "chunk_6.bin", "chunk_7.bin",
-    "chunk_8.bin", "chunk_9.bin", "chunk_10.bin", "chunk_11.bin", 
-    "chunk_12.bin", "chunk_13.bin", "chunk_14.bin", "chunk_15.bin"]
-    num_workers = os.cpu_count()
-    dataset = ChessChunkedDataset(binaries, num_workers=num_workers, ram_frac=0.25)
 
-    dataloader = DataLoader(
-        dataset, 
-        batch_size=1024, #1024 
-        num_workers=os.cpu_count(),
-        collate_fn=fast_collate,
-        pin_memory=True,
-        prefetch_factor=2
-    )
 
             
 

@@ -3,7 +3,6 @@ import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
 from gpu_unpacker import GPUUnpacker
-
 """
 - we pad by 1 to make 9 divisible by 3
 - no bias because BatchNorm2d normalizes by subtracting the mean of the batch so it 
@@ -116,3 +115,39 @@ def train_loop(dataloader, model, epochs, value_weight=1.0):
 
             if batch_idx % 100 == 0:
                 print(f"Epoch: {epoch} | Batch: {batch_idx} | V: {value_loss.item():.4f} | P: {policy_loss.item():.4f} | Loss: {loss.item():.4f}")
+
+    
+def export_to_onnx(model, onnx_file_path="chessbrain.onnx"):
+
+    # .eval comes from nn.Module(). Basically puts the network in inference. Switches BatchNorm off
+    model.eval()
+
+    # tensorRT traces the graph to understand memory geometry
+    dummy_input = torch.zeros((1, 18), dtype=torch.int64)
+
+    # put the dummy tensor with the model weights
+    device = next(model.parameters()).device 
+    dummy_input = dummy_input.to(device)
+
+    torch.onnx.export(
+        model,
+        dummy_input,
+        onnx_file_path,
+        export_params=True,
+        opset_version=14,
+        do_constant_folding=True,
+        input_names=['Raw_bitboards'],
+        output_names=['policy', 'value'],
+
+        # dynamic batching
+        dynamic_axes = {
+            'raw_bitbooards': {0: 'batch_size'},
+            'policy': {0, 'batch_size'},
+            'value': {0, 'batch_size'}
+        }
+    )
+
+    print(f"Export successful:  {onnx_file_path}")
+
+
+    
