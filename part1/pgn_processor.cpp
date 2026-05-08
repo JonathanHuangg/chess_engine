@@ -11,9 +11,7 @@
 #include "../utils/utils.h"
 #include "stats.h"
 
-// ==========================================
-// PGN PARSER (STATE MACHINE)
-// ==========================================
+
 std::vector<std::string_view> extract_moves(std::string_view game_text) {
     std::vector<std::string_view> clean_moves;
     clean_moves.reserve(100);
@@ -22,46 +20,101 @@ std::vector<std::string_view> extract_moves(std::string_view game_text) {
     size_t length = game_text.length();
     
     // State trackers to ignore comments and variations
-    int in_comment_brace = 0;   // {}
-    int in_variation_paren = 0; // ()
-    int in_tag_bracket = 0;     // []
+    int in_comment_brace = 0;
+    int in_variation_paren = 0; 
+    int in_tag_bracket = 0; 
 
     while (pos < length) {
         char c = game_text[pos];
 
-        // Handle State Entrances and Exits
-        if (c == '{') { in_comment_brace++; pos++; continue; }
-        if (c == '}') { in_comment_brace--; pos++; continue; }
-        if (c == '(') { in_variation_paren++; pos++; continue; }
-        if (c == ')') { in_variation_paren--; pos++; continue; }
-        if (c == '[') { in_tag_bracket++; pos++; continue; }
-        if (c == ']') { in_tag_bracket--; pos++; continue; }
+        // === PGN NESTING HIERARCHY ===
+        // {comments} are innermost: only { } are special inside them
+        // (variations) can contain {comments} and nested (variations)
+        // [tags] are opaque: only [ ] are special inside them
 
-        // If we are inside any metadata block, skip the character
-        if (in_comment_brace > 0 || in_variation_paren > 0 || in_tag_bracket > 0) {
+        // INNERMOST: Inside a {comment} — only { and } matter
+        if (in_comment_brace > 0) {
+            if (c == '{') in_comment_brace++;
+            else if (c == '}') in_comment_brace--;
             pos++;
             continue;
         }
+
+        //  can contain {comments} and nested (variations)
+        if (in_variation_paren > 0) {
+            if (c == '{') { in_comment_brace++; pos++; continue; }
+            if (c == '(') in_variation_paren++;
+            else if (c == ')') in_variation_paren--;
+            pos++;
+            continue;
+        }
+
+        // Inside a [tag] — only [ ] matter
+        if (in_tag_bracket > 0) {
+            if (c == '[') in_tag_bracket++;
+            else if (c == ']') in_tag_bracket--;
+            pos++;
+            continue;
+        }
+
+        // Enter a new block from top level
+        if (c == '{') { in_comment_brace++; pos++; continue; }
+        if (c == '(') { in_variation_paren++; pos++; continue; }
+        if (c == '[') { in_tag_bracket++; pos++; continue; }
+
+        // Semicolon line comments (PGN spec: ; starts comment until end of line)
+        if (c == ';') {
+            while (pos < length && game_text[pos] != '\n') pos++;
+            continue;
+        }
+
+        // Stray closing delimiters and non-move characters — skip these
+        if (c == '}' || c == ')' || c == ']' || c == '"') { pos++; continue; }
 
         if (std::isspace(static_cast<unsigned char>(c))) {
             pos++;
             continue;
         }
-
-        // We are at the start of a valid token
+        
+        // valid token
         size_t end_pos = pos;
         while (end_pos < length && !std::isspace(static_cast<unsigned char>(game_text[end_pos])) && 
-               game_text[end_pos] != '{' && game_text[end_pos] != '(' && game_text[end_pos] != '[') {
+               game_text[end_pos] != '{' && game_text[end_pos] != '(' && game_text[end_pos] != '[' &&
+               game_text[end_pos] != '}' && game_text[end_pos] != ')' && game_text[end_pos] != ']' &&
+               game_text[end_pos] != '"' && game_text[end_pos] != ';') {
             end_pos++;
         }
 
         std::string_view token = game_text.substr(pos, end_pos - pos);
         pos = end_pos;
 
-        // Disregard move numbers, game results, and NAGs
-        if (token.find('.') != std::string_view::npos) continue;
         if (token == "1-0" || token == "0-1" || token == "1/2-1/2" || token == "*") continue;
         if (!token.empty() && token[0] == '$') continue;
+
+        size_t last_dot = token.rfind('.');
+        if (last_dot != std::string_view::npos) {
+            token = token.substr(last_dot + 1);
+        }
+
+        if (token.empty()) continue;
+
+        bool all_digits = true;
+        for (char c : token) {
+            if (!std::isdigit(static_cast<unsigned char>(c))) {
+                all_digits = false;
+                break;
+            }
+        }
+        if (all_digits) continue;
+
+        // Validate token starts with a valid move character
+        // Valid: a-h (pawn file), N B R Q K (piece), O or 0 (castling)
+        char first_ch = token[0];
+        if (!((first_ch >= 'a' && first_ch <= 'h') ||
+              first_ch == 'N' || first_ch == 'B' || first_ch == 'R' ||
+              first_ch == 'Q' || first_ch == 'K' || first_ch == 'O' || first_ch == '0')) {
+            continue;
+        }
 
         clean_moves.push_back(token);
     }
@@ -85,6 +138,27 @@ std::string read_file(const std::string& filepath) {
     return contents;
 }
 
+bool is_square_attacked(int sq, int by_color, const BoardState& board) {
+    uint64_t occ = get_occupancy_board(board);
+    
+    uint64_t enemy_pawns = board.bitboards[by_color * 6 + PAWN];
+    if (by_color == WHITE) {
+        if (BLACK_PAWN_ATTACKS[sq] & enemy_pawns) return true;
+    } else {
+        if (WHITE_PAWN_ATTACKS[sq] & enemy_pawns) return true;
+    }
+    
+    if (KNIGHT_ATTACKS[sq] & board.bitboards[by_color * 6 + KNIGHT]) return true;
+    if (KING_ATTACKS[sq] & board.bitboards[by_color * 6 + KING]) return true;
+    
+    uint64_t bq = board.bitboards[by_color * 6 + BISHOP] | board.bitboards[by_color * 6 + QUEEN];
+    if (get_sliding_attacks(sq, occ, true, false) & bq) return true;
+    
+    uint64_t rq = board.bitboards[by_color * 6 + ROOK] | board.bitboards[by_color * 6 + QUEEN];
+    if (get_sliding_attacks(sq, occ, false, true) & rq) return true;
+    
+    return false;
+}
 
 // ==========================================
 // WORKER THREAD
@@ -204,13 +278,46 @@ void worker_thread(int thread_id, const std::vector<std::string_view>& chunks, T
                     uint64_t candidates = target_mask & my_pieces;
 
                     if (__builtin_popcountll(candidates) > 1) {
-                        char dis = (piece == PAWN) ? clean_move[0] : clean_move[1]; 
-                        if (dis >= 'a' && dis <= 'h') candidates &= FILE_MASKS[dis - 'a'];
-                        else if (dis >= '1' && dis <= '8') candidates &= RANK_MASKS[dis - '1'];
+                        int prefix_start = (piece == PAWN) ? 0 : 1;
+                        int prefix_len = len - 2 - prefix_start;
+                        if (prefix_len > 0) {
+                            for (int i = 0; i < prefix_len; i++) {
+                                char c = clean_move[prefix_start + i];
+                                if (c >= 'a' && c <= 'h' && c != 'x') {
+                                    candidates &= FILE_MASKS[c - 'a'];
+                                } else if (c >= '1' && c <= '8') {
+                                    candidates &= RANK_MASKS[c - '1'];
+                                }
+                            }
+                        }
+                    }
+
+                    if (__builtin_popcountll(candidates) > 1) {
+                        uint64_t legal_candidates = 0;
+                        int enemy_color = color ^ 1;
+                        for (int sq = 0; sq < 64; sq++) {
+                            if ((candidates >> sq) & 1) {
+                                BoardState temp = current_board;
+                                temp.bitboards[color * 6 + piece] &= ~(1ULL << sq);
+                                temp.bitboards[color * 6 + piece] |= (1ULL << dest_sq);
+                                for (int p = 0; p < 6; p++) {
+                                    temp.bitboards[enemy_color * 6 + p] &= ~(1ULL << dest_sq);
+                                }
+                                uint64_t my_king = temp.bitboards[color * 6 + KING];
+                                int king_sq = __builtin_ctzll(my_king);
+                                if (!is_square_attacked(king_sq, enemy_color, temp)) {
+                                    legal_candidates |= (1ULL << sq);
+                                }
+                            }
+                        }
+                        if (legal_candidates != 0) {
+                            candidates = legal_candidates;
+                        }
                     }
                     if (candidates == 0) {
                         std::cerr << "Warning: no source square found for move '" 
                                   << move << "', skipping.\n";
+                        color ^= 1; // MUST flip color even on skip, or all subsequent moves desync
                         continue;
                     }
                     source_sq = __builtin_ctzll(candidates);

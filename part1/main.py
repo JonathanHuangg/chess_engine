@@ -6,14 +6,16 @@ from pytorch_Dataloader import ChessChunkedDataset, fast_collate
 from model import ChessBrainResNet, train_loop, export_to_onnx
 
 def main():
-    assert torch.cuda.is_avaiable(), "GPU does not exist"
+    assert torch.cuda.is_available() or torch.backends.mps.is_available(), "GPU does not exist"
+
+    num_workers = os.cpu_count() or 1
+
+    print("number of workers: ", num_workers)
 
     print("---getting the binaries that should already be generated---")
-    binaries = [f"chunk_{i}.bin" for i in range(16)]
+    binaries = [f"chunk_{i}.bin" for i in range(num_workers)]
 
     # get the core count
-    num_workers = os.cpu_count or 1
-    print("number of workers: ", num_workers)
 
     # set up the dataloader
     dataset = ChessChunkedDataset(binaries, num_workers=num_workers, ram_frac=0.25)

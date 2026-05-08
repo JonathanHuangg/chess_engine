@@ -122,7 +122,7 @@ def fast_collate(batch):
     bitboards, results, move_indices = zip(*batch)
 
     # used to be list of pointers. Fit into a 2D array of shape (1024, 18). Colascing
-    bitboards_np = np.array(bitboards) #bitborads is a tuple of 1D arrays
+    bitboards_np = np.array(bitboards).view(np.int64) #bitborads is a tuple of 1D arrays
     results_np = np.array(results, dtype=np.float32)
     move_idxs_np = np.array(move_indices, dtype=np.int64)
 

@@ -3,10 +3,13 @@
 pgn_processor
 pgn_processor_dbg
 *.dSYM/
+*.pyc
 
 # Data files (input/output)
 *.pgn
+*.exe
 *.bin
+*.o
 stats_report.json
 
 # macOS specific files
