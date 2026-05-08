@@ -81,12 +81,12 @@ static std::string json_str(const std::string& s) {
     return "\"" + s + "\"";
 }
 
-void write_stats_json(const std::string& filepath, const RunStats& run,
+bool write_stats_json(const std::string& filepath, const RunStats& run,
                       const ThreadStats* thread_stats, int num_threads) {
     std::ofstream out(filepath);
     if (!out) {
         std::cerr << "Failed to write stats to " << filepath << "\n";
-        return;
+        return false;
     }
 
     out << std::fixed << std::setprecision(4);
@@ -149,6 +149,7 @@ void write_stats_json(const std::string& filepath, const RunStats& run,
         out << "      \"moves_processed\": "    << ts.moves_processed << ",\n";
         out << "      \"bytes_input\": "        << ts.bytes_input << ",\n";
         out << "      \"bytes_output\": "       << ts.bytes_output << ",\n";
+        out << "      \"games_per_sec\": "      << (ts.wall_time_sec > 0.0 ? (ts.games_processed / ts.wall_time_sec) : 0.0) << ",\n";
         out << "      \"chunks_assigned\": "    << ts.chunks_assigned << "\n";
         out << "    }";
     }
@@ -156,6 +157,7 @@ void write_stats_json(const std::string& filepath, const RunStats& run,
     out << "}\n";
 
     out.close();
+    return true;
 }
 
 void print_stats_summary(const RunStats& run, const ThreadStats* thread_stats, int num_threads) {
@@ -204,21 +206,23 @@ void print_stats_summary(const RunStats& run, const ThreadStats* thread_stats, i
 
     // Per-thread table
     std::cout << "║  PER-THREAD BREAKDOWN                                       ║\n";
-    std::cout << "║  TID   Time(s)     Games     Boards     Moves   Out(MB)     ║\n";
-    std::cout << "║  ---  --------  --------  ---------  --------  --------     ║\n";
+    std::cout << "║  TID   Time(s)      Games    Games/s      Boards    Out(MB)  ║\n";
+    std::cout << "║  ---  --------  ---------  ---------  ----------  ---------  ║\n";
 
     for (int i = 0; i < num_threads; i++) {
         const ThreadStats& ts = thread_stats[i];
         if (ts.thread_id < 0) continue;
 
+        double gps = ts.wall_time_sec > 0.0 ? (ts.games_processed / ts.wall_time_sec) : 0.0;
+
         std::cout << "║  " << std::setw(3) << ts.thread_id
                   << "  " << std::setw(8) << ts.wall_time_sec
-                  << "  " << std::setw(8) << ts.games_processed
-                  << "  " << std::setw(9) << ts.board_states
-                  << "  " << std::setw(8) << ts.moves_processed
-                  << "  " << std::setw(8) << std::setprecision(1) << (ts.bytes_output / (1024.0 * 1024.0))
+                  << "  " << std::setw(9) << ts.games_processed
+                  << "  " << std::setw(9) << gps
+                  << "  " << std::setw(10) << ts.board_states
+                  << "   " << std::setw(8) << std::setprecision(1) << (ts.bytes_output / (1024.0 * 1024.0))
                   << std::setprecision(2)
-                  << std::setw(6) << "║\n";
+                  << "  ║\n";
     }
 
     std::cout << "╚══════════════════════════════════════════════════════════════╝\n";

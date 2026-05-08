@@ -1,0 +1,123 @@
+{
+  "timing": {
+    "total_wall_time_sec": 71.6526,
+    "file_read_time_sec": 3.0455,
+    "thread_processing_time_sec": 68.6071
+  },
+  "work": {
+    "total_games": 4646902,
+    "total_board_states": 365843254,
+    "total_moves": 365843254,
+    "total_bytes_in": 3780106943,
+    "total_bytes_out": 55608174608,
+    "num_threads_used": 8,
+    "num_files": 4
+  },
+  "throughput": {
+    "games_per_sec": 67732.0808,
+    "board_states_per_sec": 5332439.7298,
+    "input_mb_per_sec": 52.5454,
+    "output_mb_per_sec": 772.9824
+  },
+  "load_balance": {
+    "thread_time_min_sec": 49.0684,
+    "thread_time_max_sec": 61.0320,
+    "thread_time_avg_sec": 58.3571,
+    "thread_time_stddev_sec": 3.8404,
+    "load_imbalance_pct": 20.5007,
+    "thread_games_min": 502514,
+    "thread_games_max": 610618,
+    "thread_boards_min": 39088389,
+    "thread_boards_max": 47824586
+  },
+  "threads": [
+    {
+      "thread_id": 0,
+      "wall_time_sec": 60.9857,
+      "games_processed": 597187,
+      "board_states": 47734936,
+      "moves_processed": 47734936,
+      "bytes_input": 472514136,
+      "bytes_output": 7255710272,
+      "games_per_sec": 9792.2484,
+      "chunks_assigned": 1
+    },
+    {
+      "thread_id": 1,
+      "wall_time_sec": 60.8746,
+      "games_processed": 610618,
+      "board_states": 47107285,
+      "moves_processed": 47107285,
+      "bytes_input": 472513780,
+      "bytes_output": 7160307320,
+      "games_per_sec": 10030.7548,
+      "chunks_assigned": 1
+    },
+    {
+      "thread_id": 2,
+      "wall_time_sec": 59.4909,
+      "games_processed": 608332,
+      "board_states": 47249533,
+      "moves_processed": 47249533,
+      "bytes_input": 472513694,
+      "bytes_output": 7181929016,
+      "games_per_sec": 10225.6275,
+      "chunks_assigned": 1
+    },
+    {
+      "thread_id": 3,
+      "wall_time_sec": 61.0320,
+      "games_processed": 584147,
+      "board_states": 47824586,
+      "moves_processed": 47824586,
+      "bytes_input": 472513874,
+      "bytes_output": 7269337072,
+      "games_per_sec": 9571.1541,
+      "chunks_assigned": 2
+    },
+    {
+      "thread_id": 4,
+      "wall_time_sec": 60.6122,
+      "games_processed": 597097,
+      "board_states": 47203460,
+      "moves_processed": 47203460,
+      "bytes_input": 472513732,
+      "bytes_output": 7174925920,
+      "games_per_sec": 9851.1061,
+      "chunks_assigned": 1
+    },
+    {
+      "thread_id": 5,
+      "wall_time_sec": 58.6401,
+      "games_processed": 579261,
+      "board_states": 45629667,
+      "moves_processed": 45629667,
+      "bytes_input": 472515774,
+      "bytes_output": 6935709384,
+      "games_per_sec": 9878.2457,
+      "chunks_assigned": 2
+    },
+    {
+      "thread_id": 6,
+      "wall_time_sec": 49.0684,
+      "games_processed": 502514,
+      "board_states": 39088389,
+      "moves_processed": 39088389,
+      "bytes_input": 472513711,
+      "bytes_output": 5941435128,
+      "games_per_sec": 10241.0888,
+      "chunks_assigned": 2
+    },
+    {
+      "thread_id": 7,
+      "wall_time_sec": 56.1532,
+      "games_processed": 567746,
+      "board_states": 44005398,
+      "moves_processed": 44005398,
+      "bytes_input": 472508242,
+      "bytes_output": 6688820496,
+      "games_per_sec": 10110.6639,
+      "chunks_assigned": 1
+    }
+  ]
+}

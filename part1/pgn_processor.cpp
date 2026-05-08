@@ -10,6 +10,10 @@
 #include <chrono>
 #include <filesystem>
 #include <cmath> 
+#ifndef _WIN32
+#include <fcntl.h>
+#include <unistd.h>
+#endif
 #include "../utils/utils.h"
 #include "stats.h"
 
@@ -18,11 +22,11 @@
 static std::mutex cerr_mutex;
 static std::mutex cout_mutex;
 static std::atomic<uint64_t> global_games_done{0};
+bool TESTING = true; 
 
 
-std::vector<std::string_view> extract_moves(std::string_view game_text) {
-    std::vector<std::string_view> clean_moves;
-    clean_moves.reserve(100);
+void extract_moves(std::string_view game_text, std::vector<std::string_view>& clean_moves) {
+    clean_moves.clear();
 
     size_t pos = 0;
     size_t length = game_text.length();
@@ -126,7 +130,6 @@ std::vector<std::string_view> extract_moves(std::string_view game_text) {
 
         clean_moves.push_back(token);
     }
-    return clean_moves;
 }
 
 
@@ -143,6 +146,20 @@ std::string read_file(const std::string& filepath) {
     in.seekg(0, std::ios::beg);
     in.read(&contents[0], contents.size());
     in.close();
+
+    // Drop cache for deterministic benchmarking
+#ifndef _WIN32
+    int fd = open(filepath.c_str(), O_RDONLY);
+    if (fd != -1) {
+#ifdef __APPLE__
+        fcntl(fd, F_NOCACHE, 1);
+#else
+        posix_fadvise(fd, 0, 0, POSIX_FADV_DONTNEED);
+#endif
+        close(fd);
+    }
+#endif
+
     return contents;
 }
 
@@ -180,7 +197,11 @@ void worker_thread(int thread_id, const std::vector<std::string_view>& chunks, T
     std::ofstream out_bin(out_filepath, std::ios::binary | std::ios::trunc); 
 
     std::vector<TrainingSample> write_buffer;
-    write_buffer.reserve(8192); // ~1MB chunking
+    write_buffer.reserve(131072); // ~16MB chunking
+
+    std::vector<std::string_view> moves;
+    moves.reserve(256);
+    int local_games_done = 0;
 
     for (std::string_view chunk : chunks) {
         my_stats->bytes_input += chunk.size();
@@ -197,15 +218,21 @@ void worker_thread(int thread_id, const std::vector<std::string_view>& chunks, T
             std::string_view single_game = chunk.substr(game_start, game_length);
             float absolute_result = get_game_result(single_game);
             
-            std::vector<std::string_view> moves = extract_moves(single_game);
+            extract_moves(single_game, moves);
             my_stats->games_processed++;
             my_stats->moves_processed += moves.size();
 
-            // Progress indicator so it doesn't look frozen
-            uint64_t done = global_games_done.fetch_add(1, std::memory_order_relaxed) + 1;
-            if (done % 100000 == 0) {
-                std::lock_guard<std::mutex> lock(cout_mutex);
-                std::cout << "\rProcessed " << done << " games..." << std::flush;
+            // Progress indicator (batch fetch_add to reduce MESI traffic/cache line bouncing)
+            local_games_done++;
+            if (local_games_done >= 4096) {
+                uint64_t done = global_games_done.fetch_add(local_games_done, std::memory_order_relaxed) + local_games_done;
+                local_games_done = 0;
+                
+                // Print roughly every 100,000 games
+                if ((done / 100000) > ((done - 4096) / 100000)) {
+                    std::lock_guard<std::mutex> lock(cout_mutex);
+                    std::cout << "\rProcessed " << (done / 100000) * 100000 << " games..." << std::flush;
+                }
             }
 
             BoardState current_board;
@@ -335,7 +362,7 @@ void worker_thread(int thread_id, const std::vector<std::string_view>& chunks, T
                             std::cerr << "Warning: no source square found for move '"
                                       << move << "', skipping.\n";
                         }
-                        color ^= 1; // MUST flip color even on skip, or all subsequent moves desync
+                        color ^= 1; // MUST flip color even on skip
                         continue;
                     }
                     source_sq = ctz64(candidates);
@@ -390,7 +417,7 @@ void worker_thread(int thread_id, const std::vector<std::string_view>& chunks, T
                 my_stats->board_states++;
                 my_stats->bytes_output += sizeof(TrainingSample);
 
-                if (write_buffer.size() >= 8192) {
+                if (write_buffer.size() >= 131072) {
                     out_bin.write(reinterpret_cast<const char*>(write_buffer.data()), 
                                   write_buffer.size() * sizeof(TrainingSample));
                     write_buffer.clear();
@@ -458,6 +485,11 @@ void worker_thread(int thread_id, const std::vector<std::string_view>& chunks, T
         }
     }
 
+    // Flush remaining local games done count
+    if (local_games_done > 0) {
+        global_games_done.fetch_add(local_games_done, std::memory_order_relaxed);
+    }
+
     // Flush remaining buffer data
     if (!write_buffer.empty()) {
         out_bin.write(reinterpret_cast<const char*>(write_buffer.data()), 
@@ -467,6 +499,10 @@ void worker_thread(int thread_id, const std::vector<std::string_view>& chunks, T
     out_bin.close();
     auto t_end = std::chrono::steady_clock::now();
     my_stats->wall_time_sec = std::chrono::duration<double>(t_end - t_start).count();
+
+    if (TESTING) {
+        std::filesystem::remove(out_filepath);
+    }
 }
 
 // MAIN ORCHESTRATOR
@@ -512,46 +548,69 @@ int main() {
     std::vector<std::string> file_buffers(k);
     std::vector<std::vector<std::string_view>> thread_assignments(num_threads);
 
-    int threads_per_file = num_threads / k;
-    if (threads_per_file < 1) threads_per_file = 1;
+    // Phase 1: equal sliced bit file chunks
 
-    // Phase 1: Read all files and assign chunks to threads
+    // read and see how large each file buffer is
+    size_t total_bytes = 0;
     for (int i = 0; i < k; i++) {
         std::string full_path = pgn_folder + "/" + files[i];
         file_buffers[i] = read_file(full_path);
-        if (file_buffers[i].empty()) continue;
-
+        total_bytes += file_buffers[i].size();
         std::cout << "Read " << files[i] << " (" << file_buffers[i].size() << " bytes)\n";
+    }
 
-        std::string_view view(file_buffers[i]);
-        size_t total_bytes = view.size();
-        size_t chunk_size = total_bytes / threads_per_file;
+    if (total_bytes == 0) {
+        std::cerr << "No data found\n";
+        return 1;
+    }
 
-        size_t current_start = 0;
-        const std::string_view tag = "[Event ";
+    size_t target_bytes_per_thread = total_bytes / num_threads;
+    int curr_file_idx = 0; // which pgn file you look at
+    size_t current_file_offset = 0; // byte index in that specific file
+    const std::string_view event_tag = "[Event ";
 
-        for (int j = 0; j < threads_per_file; ++j) {
-            int target_thread_id = (i * threads_per_file) + j;
-            if (target_thread_id >= num_threads) break;
+    for (int t = 0; t < num_threads; t++) {
+        size_t bytes_assigned_to_thread = 0;
+        while (bytes_assigned_to_thread < target_bytes_per_thread && curr_file_idx < k) {
+            std::string_view view(file_buffers[curr_file_idx]);
+            size_t bytes_remaining_in_file = view.size() - current_file_offset;
+            size_t bytes_needed = target_bytes_per_thread - bytes_assigned_to_thread;
             
-            size_t target_end = current_start + chunk_size;
-            
-            if (j == threads_per_file - 1 || target_end >= total_bytes) {
-                thread_assignments[target_thread_id].push_back(view.substr(current_start));
-                break;
+            // last thread must take everything
+            if (t == num_threads - 1) {
+                thread_assignments[t].push_back(view.substr(current_file_offset));
+                bytes_assigned_to_thread += bytes_remaining_in_file;
+                current_file_offset = view.size();
+            } else if (bytes_remaining_in_file < bytes_needed) { // you need the next file too
+                thread_assignments[t].push_back(view.substr(current_file_offset));
+                bytes_assigned_to_thread += bytes_remaining_in_file;
+                current_file_offset = view.size();
+            } else {
+                size_t target_end = current_file_offset + bytes_needed;
+                
+                // need to get a safe cut and not split a game in half
+                size_t safe_cut_point = view.find(event_tag, target_end);
+                if (safe_cut_point == std::string_view::npos) {
+                    // no more games, get entire file
+                    thread_assignments[t].push_back(view.substr(current_file_offset));
+                    bytes_assigned_to_thread += bytes_remaining_in_file;
+                    current_file_offset = view.size();
+                } else {
+                    thread_assignments[t].push_back(view.substr(current_file_offset, safe_cut_point - current_file_offset));
+                    bytes_assigned_to_thread += (safe_cut_point - current_file_offset);
+                    current_file_offset = safe_cut_point;
+                }
             }
-
-            size_t safe_cut_point = view.find(tag, target_end);
             
-            if (safe_cut_point == std::string_view::npos) {
-                thread_assignments[target_thread_id].push_back(view.substr(current_start));
-                break;
+            // go next file;
+            if (current_file_offset >= view.size()) {
+                curr_file_idx++;
+                current_file_offset = 0;
             }
-
-            thread_assignments[target_thread_id].push_back(view.substr(current_start, safe_cut_point - current_start));
-            current_start = safe_cut_point;
         }
     }
+
+    
 
     auto t_read_end = std::chrono::steady_clock::now();
     double file_read_sec = std::chrono::duration<double>(t_read_end - t_total_start).count();
@@ -581,8 +640,8 @@ int main() {
     run.num_files = k;
 
     print_stats_summary(run, thread_stats.data(), num_threads);
-    write_stats_json("stats_report.json", run, thread_stats.data(), num_threads);
-
-    std::cout << "Stats saved to stats_report.json\n";
+    if (write_stats_json("stats_report.json", run, thread_stats.data(), num_threads)) {
+        std::cout << "Stats saved to stats_report.json\n";
+    }
     return 0;
 }
