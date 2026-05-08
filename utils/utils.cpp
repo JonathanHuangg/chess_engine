@@ -130,7 +130,7 @@ uint64_t get_sliding_attacks(int sq, uint64_t occ, bool is_diagonal, bool is_ort
             uint64_t blockers = ray & occ;
 
             if (blockers) {
-                int blockers_sq = __builtin_ctzll(blockers); // find the lowest set bit
+                int blockers_sq = ctz64(blockers); // find the lowest set bit
                 ray ^= RAY_MASKS[blockers_sq][dir]; // wipe the shadow
             }
             attacks |= ray;
@@ -142,7 +142,7 @@ uint64_t get_sliding_attacks(int sq, uint64_t occ, bool is_diagonal, bool is_ort
             uint64_t blockers = ray & occ; 
 
             if (blockers) {
-                int blocker_sq = 63 - __builtin_clzll(blockers);
+                int blocker_sq = 63 - clz64(blockers);
                 ray ^= RAY_MASKS[blocker_sq][dir];
             }
             attacks |= ray;
@@ -155,7 +155,7 @@ uint64_t get_sliding_attacks(int sq, uint64_t occ, bool is_diagonal, bool is_ort
             uint64_t ray = RAY_MASKS[sq][dir];
             uint64_t blockers = ray & occ;
             if (blockers) {
-                int blocker_sq = __builtin_ctzll(blockers);
+                int blocker_sq = ctz64(blockers);
                 ray ^= RAY_MASKS[blocker_sq][dir];
             }
             attacks |= ray;
@@ -165,7 +165,7 @@ uint64_t get_sliding_attacks(int sq, uint64_t occ, bool is_diagonal, bool is_ort
             uint64_t ray = RAY_MASKS[sq][dir];
             uint64_t blockers = ray & occ;
             if (blockers) {
-                int blocker_sq = 63 - __builtin_clzll(blockers);
+                int blocker_sq = 63 - clz64(blockers);
                 ray ^= RAY_MASKS[blocker_sq][dir];
             }
             attacks |= ray;

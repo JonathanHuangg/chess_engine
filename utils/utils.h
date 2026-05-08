@@ -5,6 +5,28 @@
 #include <vector>
 #include <string_view>
 
+// === Cross-platform intrinsic wrappers ===
+#ifdef _MSC_VER
+  #include <intrin.h>
+  inline int popcount64(uint64_t x) { return (int)__popcnt64(x); }
+  inline int ctz64(uint64_t x) {
+      unsigned long idx;
+      _BitScanForward64(&idx, x);
+      return (int)idx;
+  }
+  inline int clz64(uint64_t x) {
+      unsigned long idx;
+      _BitScanReverse64(&idx, x);
+      return 63 - (int)idx;
+  }
+  inline uint64_t bswap64(uint64_t x) { return _byteswap_uint64(x); }
+#else
+  inline int popcount64(uint64_t x) { return __builtin_popcountll(x); }
+  inline int ctz64(uint64_t x) { return __builtin_ctzll(x); }
+  inline int clz64(uint64_t x) { return __builtin_clzll(x); }
+  inline uint64_t bswap64(uint64_t x) { return __builtin_bswap64(x); }
+#endif
+
 #define BLACK 0 
 #define WHITE 1
 #define PAWN 0
@@ -108,7 +130,7 @@ inline int16_t encode_move_flipped(int src_sq, int dest_sq, int color, int promo
 }
 
 inline uint64_t flip_bitboard_vertical(uint64_t b) {
-    return __builtin_bswap64(b);
+    return bswap64(b);
 }
 inline float get_game_result(std::string_view game_text) {
     if (game_text.find("[Result \"1-0\"]") != std::string_view::npos) return 1.0f;

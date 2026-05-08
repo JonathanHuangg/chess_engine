@@ -4,12 +4,17 @@
 #include <string>
 #include <string_view>
 #include <thread>
+#include <mutex>
 #include <cstdint>
 #include <chrono>
 #include <filesystem>
 #include <cmath> 
 #include "../utils/utils.h"
 #include "stats.h"
+
+// Protects std::cerr so warning lines from different threads don't interleave
+// only fires when there's an error, so we don't need it most of the time
+static std::mutex cerr_mutex;
 
 
 std::vector<std::string_view> extract_moves(std::string_view game_text) {
@@ -277,7 +282,7 @@ void worker_thread(int thread_id, const std::vector<std::string_view>& chunks, T
                     uint64_t my_pieces = current_board.bitboards[color * 6 + piece];
                     uint64_t candidates = target_mask & my_pieces;
 
-                    if (__builtin_popcountll(candidates) > 1) {
+                    if (popcount64(candidates) > 1) {
                         int prefix_start = (piece == PAWN) ? 0 : 1;
                         int prefix_len = len - 2 - prefix_start;
                         if (prefix_len > 0) {
@@ -292,7 +297,7 @@ void worker_thread(int thread_id, const std::vector<std::string_view>& chunks, T
                         }
                     }
 
-                    if (__builtin_popcountll(candidates) > 1) {
+                    if (popcount64(candidates) > 1) {
                         uint64_t legal_candidates = 0;
                         int enemy_color = color ^ 1;
                         for (int sq = 0; sq < 64; sq++) {
@@ -304,7 +309,7 @@ void worker_thread(int thread_id, const std::vector<std::string_view>& chunks, T
                                     temp.bitboards[enemy_color * 6 + p] &= ~(1ULL << dest_sq);
                                 }
                                 uint64_t my_king = temp.bitboards[color * 6 + KING];
-                                int king_sq = __builtin_ctzll(my_king);
+                                int king_sq = ctz64(my_king);
                                 if (!is_square_attacked(king_sq, enemy_color, temp)) {
                                     legal_candidates |= (1ULL << sq);
                                 }
@@ -315,12 +320,15 @@ void worker_thread(int thread_id, const std::vector<std::string_view>& chunks, T
                         }
                     }
                     if (candidates == 0) {
-                        std::cerr << "Warning: no source square found for move '" 
-                                  << move << "', skipping.\n";
+                        {
+                            std::lock_guard<std::mutex> lock(cerr_mutex);
+                            std::cerr << "Warning: no source square found for move '"
+                                      << move << "', skipping.\n";
+                        }
                         color ^= 1; // MUST flip color even on skip, or all subsequent moves desync
                         continue;
                     }
-                    source_sq = __builtin_ctzll(candidates);
+                    source_sq = ctz64(candidates);
                 }
 
                 // turn to traingsample
