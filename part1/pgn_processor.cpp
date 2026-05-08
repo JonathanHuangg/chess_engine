@@ -139,20 +139,20 @@ void worker_thread(int thread_id, const std::vector<std::string_view>& chunks, T
                 int k_source, k_dest, r_source, r_dest;
 
                 // --- PHASE 1: PARSING & DISAMBIGUATION ---
-                if (move == "O-O" || move == "O-O-O") {
+                int len = move.length();
+                while (len > 0 && (move[len-1] == '+' || move[len-1] == '#' || move[len-1] == '!' || move[len-1] == '?')) len--;
+                std::string_view clean_move = move.substr(0, len);
+
+                if (clean_move == "O-O" || clean_move == "O-O-O" || clean_move == "0-0" || clean_move == "0-0-0") {
                     is_castling = true;
                     piece = KING;
                     k_source = (color == WHITE) ? 4 : 60;
-                    k_dest   = (move == "O-O") ? k_source + 2 : k_source - 2; 
-                    r_source = (move == "O-O") ? k_source + 3 : k_source - 4;
-                    r_dest   = (move == "O-O") ? k_source + 1 : k_source - 1;
+                    k_dest   = (clean_move == "O-O" || clean_move == "0-0") ? k_source + 2 : k_source - 2; 
+                    r_source = (clean_move == "O-O" || clean_move == "0-0") ? k_source + 3 : k_source - 4;
+                    r_dest   = (clean_move == "O-O" || clean_move == "0-0") ? k_source + 1 : k_source - 1;
                     source_sq = k_source;
                     dest_sq = k_dest;
                 } else {
-                    int len = move.length();
-                    while (len > 0 && (move[len-1] == '+' || move[len-1] == '#' || move[len-1] == '!' || move[len-1] == '?')) len--;
-                    std::string_view clean_move = move.substr(0, len);
-
                     if (clean_move.find('=') != std::string_view::npos) {
                         char promo_char = clean_move.back();
                         if (promo_char == 'Q') promo_piece = QUEEN;
