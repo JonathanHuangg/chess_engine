@@ -5,6 +5,7 @@
 #include <string_view>
 #include <thread>
 #include <mutex>
+#include <atomic>
 #include <cstdint>
 #include <chrono>
 #include <filesystem>
@@ -15,6 +16,8 @@
 // Protects std::cerr so warning lines from different threads don't interleave
 // only fires when there's an error, so we don't need it most of the time
 static std::mutex cerr_mutex;
+static std::mutex cout_mutex;
+static std::atomic<uint64_t> global_games_done{0};
 
 
 std::vector<std::string_view> extract_moves(std::string_view game_text) {
@@ -197,6 +200,13 @@ void worker_thread(int thread_id, const std::vector<std::string_view>& chunks, T
             std::vector<std::string_view> moves = extract_moves(single_game);
             my_stats->games_processed++;
             my_stats->moves_processed += moves.size();
+
+            // Progress indicator so it doesn't look frozen
+            uint64_t done = global_games_done.fetch_add(1, std::memory_order_relaxed) + 1;
+            if (done % 100000 == 0) {
+                std::lock_guard<std::mutex> lock(cout_mutex);
+                std::cout << "\rProcessed " << done << " games..." << std::flush;
+            }
 
             BoardState current_board;
             set_starting_position(current_board);
@@ -554,11 +564,13 @@ int main() {
         }
     }
 
-    std::cout << "Launched " << workers.size() << " worker threads...\n";
+    std::cout << "Launched " << workers.size() << " worker threads..." << std::endl;
 
     for (auto& t : workers) {
         if (t.joinable()) t.join();
     }
+
+    std::cout << "\rProcessed " << global_games_done.load() << " games total." << std::endl;
 
     auto t_total_end = std::chrono::steady_clock::now();
     double total_wall_sec = std::chrono::duration<double>(t_total_end - t_total_start).count();
