@@ -221,3 +221,25 @@ void set_starting_position(BoardState &board) {
     board.bitboards[(BLACK * 6) + KING] = 0x1000000000000000ULL;
 
 }
+
+bool is_square_attacked(int sq, int by_color, const BoardState& board) {
+    uint64_t occ = get_occupancy_board(board);
+
+    uint64_t enemy_pawns = board.bitboards[by_color * 6 + PAWN];
+    if (by_color == WHITE) {
+        if (BLACK_PAWN_ATTACKS[sq] & enemy_pawns) return true;
+    } else {
+        if (WHITE_PAWN_ATTACKS[sq] & enemy_pawns) return true;
+    }
+
+    if (KNIGHT_ATTACKS[sq] & board.bitboards[by_color * 6 + KNIGHT]) return true;
+    if (KING_ATTACKS[sq] & board.bitboards[by_color * 6 + KING]) return true;
+
+    uint64_t bq = board.bitboards[by_color * 6 + BISHOP] | board.bitboards[by_color * 6 + QUEEN];
+    if (get_sliding_attacks(sq, occ, true, false) & bq) return true;
+
+    uint64_t rq = board.bitboards[by_color * 6 + ROOK] | board.bitboards[by_color * 6 + QUEEN];
+    if (get_sliding_attacks(sq, occ, false, true) & rq) return true;
+
+    return false;
+}

@@ -157,6 +157,9 @@ uint64_t get_occupancy_board(const BoardState &board);
 uint64_t get_sliding_attacks(int sq, uint64_t occ, bool is_diagonal, bool is_orthogonal);
 void set_starting_position(BoardState &board);
 
+// Attack detection
+bool is_square_attacked(int sq, int by_color, const BoardState& board);
+
 // Move parsing
 std::vector<std::string_view> extract_moves(std::string_view game_text);
 

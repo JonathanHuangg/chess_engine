@@ -18,8 +18,12 @@ class GPUUnpacker(nn.Module):
         # self.shifts is a grid 0-63. when you right shift with the board
         # [0,0] shifts by 0. [7, 7] shifts by 63
 
-        # &1 just checks if the number is asserted
-        # this is the equivalent is saying (rook here (1), rook not here (0))
+        # IMPORTANT: PyTorch has no uint64. These are int64 (signed).
+        # Right-shifting a negative int64 (bit 63 set) does ARITHMETIC shift,
+        # copying the sign bit downward. The & 1 mask is CRITICAL: it isolates
+        # only the least significant bit, discarding the replicated sign bits.
+        # If you ever remove the & 1, the sign extension will silently corrupt
+        # every bitboard that has the h8 square (bit 63) occupied.
         unpacked = (boards >> self.shifts) & 1
 
         # convert to float32
