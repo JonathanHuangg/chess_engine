@@ -183,6 +183,19 @@ def train_loop(dataloader, model, epochs, value_weight=1.0, max_batches=None):
         print(f"  Avg Policy Loss:{avg_ploss:.4f}")
         print(f"  Final LR:       {optimizer.param_groups[0]['lr']:.2e}\n")
 
+        # save checkpoint after each epoch — protects against mid-training crashes
+        raw = model._orig_mod if hasattr(model, '_orig_mod') else model
+        ckpt_path = f"chessbrain_epoch{epoch}.pt"
+        torch.save({
+            'epoch': epoch,
+            'model_state_dict': raw.state_dict(),
+            'optimizer_state_dict': optimizer.state_dict(),
+            'scheduler_state_dict': scheduler.state_dict(),
+            'avg_value_loss': avg_vloss,
+            'avg_policy_loss': avg_ploss,
+        }, ckpt_path)
+        print(f"  ✓ Checkpoint saved: {ckpt_path}")
+
     
 def export_to_onnx(model, onnx_file_path="chessbrain.onnx"):
 

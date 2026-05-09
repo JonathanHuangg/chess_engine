@@ -70,9 +70,30 @@ def main():
     
     train_loop(dataloader, model, EPOCHS, VALUE_WEIGHT, max_batches=MAX_BATCHES)
 
-    print("---Exporting ONNX---")  
-    export_to_onnx(model, "chessbrain.onnx")
-    print("Done! Ready for inference")
+    # ── SAFETY NET: save PyTorch checkpoint FIRST ──────────────────────
+    # This guarantees we never lose trained weights, even if ONNX export
+    # fails (e.g. bitwise op tracing issues with signed int64).
+    checkpoint_path = "chessbrain_trained.pt"
+    raw_model = model._orig_mod if hasattr(model, '_orig_mod') else model
+    torch.save({
+        'model_state_dict': raw_model.state_dict(),
+        'num_blocks': NUM_BLOCKS,
+        'channels': CHANNELS,
+        'vocab_size': 4672,
+        'epochs_trained': EPOCHS,
+    }, checkpoint_path)
+    print(f"\n✓ PyTorch checkpoint saved to {checkpoint_path}")
+    print(f"  (To reload: model.load_state_dict(torch.load('{checkpoint_path}')['model_state_dict']))")
+
+    # ── ONNX export (may fail on bitwise int64 tracing) ───────────────
+    print("\n---Exporting ONNX---")
+    try:
+        export_to_onnx(model, "chessbrain.onnx")
+        print("Done! ONNX model ready for inference")
+    except Exception as e:
+        print(f"\n⚠ ONNX export failed: {e}")
+        print(f"Your trained weights are safe in '{checkpoint_path}'")
+        print("You can retry ONNX export later by loading the checkpoint.")
 
 if __name__ == '__main__':
     main()
