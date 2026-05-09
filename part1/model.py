@@ -86,15 +86,6 @@ def train_loop(dataloader, model, epochs, value_weight=1.0, max_batches=None):
     # use the cuDNN autotuner to find fastest convolution algorithms
     torch.backends.cudnn.benchmark = True 
 
-    # torch.compile fuses BatchNorm+ReLU kernels, reducing launch overhead
-    # Pascal (GTX 1080) support is less robust than Ampere but still helps
-    if hasattr(torch, 'compile'):
-        try:
-            model = torch.compile(model)
-            print("torch.compile enabled")
-        except Exception as e:
-            print(f"torch.compile not available: {e}")
-
     # AdamW decouples weight decay from the gradient update, better generalization
     optimizer = optim.AdamW(model.parameters(), lr=1e-3, weight_decay=1e-4)
 

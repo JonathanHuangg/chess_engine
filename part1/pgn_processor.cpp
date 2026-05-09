@@ -17,12 +17,13 @@
 #include "../utils/utils.h"
 #include "stats.h"
 
+// to make:  mingw32-make
 // Protects std::cerr so warning lines from different threads don't interleave
 // only fires when there's an error, so we don't need it most of the time
 static std::mutex cerr_mutex;
 static std::mutex cout_mutex;
 static std::atomic<uint64_t> global_games_done{0};
-bool TESTING = true; 
+bool TESTING = false; 
 
 
 void extract_moves(std::string_view game_text, std::vector<std::string_view>& clean_moves) {
