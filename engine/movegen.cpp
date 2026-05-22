@@ -3,9 +3,6 @@
 #include <iostream>
 #include <cmath>
 
-// ============================================================
-// Position initialization
-// ============================================================
 void init_position(Position& pos) {
     set_starting_position(pos.board);
     pos.castling[CASTLE_WK] = true;
@@ -16,9 +13,6 @@ void init_position(Position& pos) {
     pos.color = WHITE;
 }
 
-// ============================================================
-// Internal helpers
-// ============================================================
 
 // Get combined occupancy for one side
 static inline uint64_t side_occupancy(const BoardState& board, int color) {
