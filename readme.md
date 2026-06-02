@@ -71,3 +71,56 @@ For `ChessBrainResNet`, in `__init__()`, we use the custom `GPUUnpacker` and cre
 [^2]: **Bitboard Layout:** Bitboards 0-11 are for the piece types for the player and opponent. Bitboard 12 is the turn indicator (flooded with 1s if white, 0s if black. Because a CNN uses 3x3 sliding windows, it needs to always be able to see whose turn it is locally). Bitboards 13-16 are castling rights (player kingside/queenside and opponent kingside/queenside, also flooded). Bitboard 17 is the en passant square. 
 
 [^3]: **Bulk Binary Writes:** Referencing the bitboards, I had a `struct` called `TrainingSample` that had all the data I needed. I used a `std::vector` that accumulated 131,072 items (~19 MB of data) per chunk before doing a massive bulk memory dump into the NVMe drive. The result of this implementation was a consistent **770 MB/s** write speed. Noting that NVMe drives have a burst cache speed of around 2500 MB/s with the SLC cache, the focus for a 50GB dataset was the sustained TLC NAND write limit, which NVMe's can only do at around 900 MB/s. 
+
+### PyTorch Dataloader
+As stated before, there is around 50GB of raw binary files that has to be processed. The goal is to write a dataloader that when feeding into the GPU and training the ResNet, we are still compute bound. 
+
+#### Loading to RAM
+**Original (Incorrect) Approach:** Originally, I had planned to use `numpy.memmap` which literally treats the file as if it was an array in RAM. The OS then puts the data into memory which once is in memory, will increase I/O. Then using multiple PyTorch worker processors (the number matching CPU cores), each worker owns its own `mmap` and writes to it to remove lock contention. 
+
+Another implementation idea I had was to shuffle the data itself so the neural network isn't learning first openings -> then midgame -> then endgame. Instead, it takes every board as its own state and learns it altogether pseudo-randomly. However, my PC can't scramble 40GB of data due to cache misses so my solution was 1GB chunk shuffles.
+
+After writing that code, I looked into how `numpy.memmap` works more thoroughly. `numpy.memmap` does lazy allocation. When `numpy.memmap()` is called, the virtual address space is put onto the RAM but the physical data still lives on the disk. Only when the data is needed does the kernel page fault and bring the data in. However, relying on the OS for page faults has its own problems because if I was to be optimizing for speed, the kernel has its own `mmap_lock()`. Given 16 workers (the number of threads on Ryzen 7 2700x is 16), if they were to all page fault on every memory access, this might as well be a single-threaded queue. 
+
+Consulting Gemini for advice, the solution is to use `MADV_WILLNEED` which tells the kernel to fetch the data with a background thread and load the data into RAM asynchronously. 
+
+Then I thought about the workers again. Originally, I was using the PyTorch `DataLoader` class. PyTorch uses the `fork()` system call for processes. Opening the `numpy.memmap` in the main process, the kernel will assign the same file descriptor for every thread. Again, this removes the point of parallel processing. I pivoted to an `IterableDataset`. Inside each iteration, I use `os.open()` so every worker gets its own file descriptor. 
+
+So the solution is to use the `IterableDataset` and a memory map with `MADV_WILLNEED`? Not quite. 
+
+**Final Approach:** `IterableDataset` is fine. However, scrambling with Python is still slow due to the overhead. I then learned (or grasped the concept of) virtual shuffling. Instead of actually moving gigabytes of chess boards, create a 1D array of integers where the length is the total number of boards. I can just shuffle the indices! During training, the `IterableDataset` can read the shuffled indices. It uses those indices to calculate the byte offset based on the 40GB file.
+
+We then pass the chunks of the indices to `madvise` with `MADV_WILLNEED`. The kernel spins up a background thread, reads the scrambled blocks, and drops the data into the OS page cache. Finally, when the worker reaches the index, it uses `os.readinto()` and a preallocated byte array to do a copy from kernel-space RAM into user-space RAM. This is a new idea, using `os.readinto()`. 
+
+To summarize this main change, my original idea was:
+
+* **`mmap`** - A process's virtual memory address is mapped to the physical RAM pages of the OS page cache. 
+* **`os.readinto()`** - The CPU performs a `memcpy()` from the kernel's page cache into a bytearray buffer in user-space RAM, bypassing the page fault.
+
+| `mmap` + `MADV_WILLNEED` | `bytearray` + `os.readinto()` |
+| :--- | :--- |
+| <ul><li>Not loading data into RAM, Linux Kernel is reserving a block of Virtual Memory.</li><li>The moment you call `mmap`:<ul><li>Virtual Memory Map - Address `0x1000` -> `0x2000` belongs to `chunk_0.bin`.</li><li>There is no physical RAM allocation.</li></ul></li><li>By calling `MADV_WILLNEED`, the NVMe controller copies the file from the drive into the OS page cache (physical RAM).</li><li>When Python reads anything, it will look at the virtual memory map and there will be a soft page fault.</li><li>The main bottleneck: Checks the virtual memory address ledger, sees the address is valid. Then checks the page cache. Then updates the CPU page table.<ul><li>Updating the page table requires using the `mmap_sem` lock. With multiple workers, this will always cause lock contention.</li></ul></li></ul> | <ul><li>Create `bytearray(1GB)` in Python.<ul><li>OS allocates 1GB of RAM in user-space and wires to the process's page table immediately.</li></ul></li><li>We use `os.readinto(fd, buffer)`:<ul><li>Kernel tells the NVMe drive to DMA the data into OS Page Cache. Then it does a `memcpy()` from kernel-space Page Cache directly into user-space RAM.</li></ul></li><li>This has perfect wiring for the CPU page table into the physical RAM.</li></ul> |
+
+
+### Collation
+With the CPU thread workers fetching games, they grab the bitboard arrays, winner, and move number. Assume the batch size is 1024 so every worker grabs 1024 games. The main problem is Python (and lack of orchestration lol). For lists of tuples, the tuples are fragmented in memory after scrambling. The list itself is a list of memory addresses in different cache blocks. GPU needs coalesced memory.
+
+I had to write my own collation function because I had to:
+
+1. Pack all the bitboards `(1024, 18)` and feed it into the ResNet input layer
+2. Pack all the results `(1024,)` for the Mean Squared Error calculation
+3. And get the move idx `(1024,)` for the cross entropy loss
+
+I also pinned the memory for better DMA because I don't want the OS to swap the memory disk that the DMA is reading from. 
+
+### GPU Unpacker
+Normally, the CPU should be the one to convert every tuple into a tensor and give to the GPU for processing. However, GPUs technically can convert to tensors more quickly. The end structure of a tensor is `(18 x 8 x 8 x 4)` where there are 18 bitboards, 8 rows, 8 columns (size of chess board), and 4 bytes (float32). Each tensor is thus 4608 bytes. Trying to stream that to the GPU would cause an I/O bottleneck.
+
+First of all, the 4608 bytes could be processed into 18 `uint64_t`s (32x reduction in PCIe bandwidth). Again, 18 bitboards represent all of the pieces as well as metadata. They don't have to be in float32. Whether that rook is in a square can be represented as a 1 or a 0. In other words, instead of a FP32 for every square, represent the 8x8 grid to binary. 8x8 grid to binary can be represented as a `uint64_t`. 18 layers. Total = 18 layers * 8 bytes per integer = 144 bytes.
+
+Thus, I wrote a PyTorch Module called `GPUUnpacker` which uses bitwise operations to turn 18 `uint64_t` integers into `18 x 8 x 8` float32 tensors directly in the VRAM. 
+
+More specifically, I started by adding a singleton row and column. Then I do a matrix shift with an 8x8 matrix where int64 fills the matrix via broadcasting. After an AND with 1, each matrix item (chess board representation) basically knows if it should be asserted or not. Logically, asserted means if the piece should be on there or not. (Btw, I work with float32 because this is the GTX 1080 and there is no support for a better precision).
+
+
+Note: used Gemini to format the readme. all of the actual text is written by me.
