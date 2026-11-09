@@ -250,7 +250,9 @@ static int gen_piece_moves(const Position& pos, uint64_t friendly,
     return count;
 }
 
-/
+// ============================================================
+// Move generation — king moves (incl. castling)
+// ============================================================
 static int gen_king_moves(const Position& pos, uint64_t friendly,
                           uint64_t enemies, uint64_t occ,
                           Move* moves, int count) {
@@ -425,7 +427,7 @@ bool make_move(Position& pos, const Move& m) {
     if (!our_king) return false;
     int king_sq = ctz64(our_king);
     if (is_square_attacked(king_sq, enemy, pos.board)) {
-        return false; /
+        return false; // move leaves own king in check: illegal
     }
 
     return true;

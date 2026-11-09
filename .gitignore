@@ -4,6 +4,8 @@ pgn_processor
 pgn_processor_dbg
 *.dSYM/
 *.pyc
+/engine/perft
+/engine/play
 
 # Data files (input/output)
 *.pgn
@@ -11,6 +13,13 @@ pgn_processor_dbg
 *.bin
 *.o
 stats_report.json
+
+# Trained model checkpoints / exports (the committed files in part1/
+# stay tracked; this stops future checkpoints being committed by
+# accident — they are tens of MB each).
+*.pt
+*.onnx
+*.onnx.data
 
 # macOS specific files
 .DS_Store

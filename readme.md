@@ -8,7 +8,28 @@ The project is separated into 4 distinct phases:
 1. **An ETL pipeline** to turn PGN to binary. 
 2. **PyTorch Dataloader** for high-throughput streaming.
 3. **Dual-Head ResNet + Training Loop**. 
-4. **Inference Engine** using monte-carlo tree search to output chess moves.  
+4. **Inference Engine** using monte-carlo tree search to output chess moves. All four phases are implemented; phase 4 is in `engine/mcts.cpp` + `engine/play.cpp` (C++) and `part1/inference.py` (Python, neural).
+
+### Quickstart (phase 4)
+
+```bash
+# C++ engine: build + validate the move generator + play 10 plies
+cd engine && make && ./perft && ./play --sims 200 --plies 10
+
+# Python neural search (needs torch + python-chess):
+#   pip install torch python-chess
+cd part1 && python inference.py --self-play --sims 64 --plies 8
+
+# Full smoke suite (build, perft, movegen cross-check, both MCTS paths):
+python3 tests/test_phase4.py
+```
+
+Trained checkpoints are committed in `part1/` (`chessbrain_trained.pt` is the
+final model, 8 blocks x 128 channels; `chessbrain_epoch0..4.pt` are per-epoch
+checkpoints; `chessbrain.onnx` + `chessbrain.onnx.data` are the ONNX export).
+Together they are ~207 MB. They are the asset, so they stay committed, but
+`.gitignore` now excludes `*.pt`, `*.onnx`, and `*.onnx.data` so future
+checkpoints are not committed by accident.
 
 ---
 
@@ -124,3 +145,63 @@ More specifically, I started by adding a singleton row and column. Then I do a m
 
 
 Note: used Gemini to format the readme. all of the actual text is written by me.
+
+---
+
+### 4) Inference Engine (MCTS)
+
+Phase 4 closes the loop: the engine now outputs moves. There are two
+search paths that share the same move generator (`engine/movegen.cpp`,
+validated by perft, depths 1-6) and the same PUCT search shape.
+
+**C++ search — `engine/mcts.cpp`, `engine/mcts.h`, `engine/play.cpp`.**
+`Mcts` runs PUCT selection over the legal moves from `generate_pseudo_legal`
+(filtered through `make_move`, exactly like perft does), expands leaves with
+an `Evaluator`, and backs values up with the sign flipped at every ply
+(the perspective flips each move). The built-in `MaterialEvaluator` scores
+a position by `tanh(material advantage)` so the C++ engine plays with no
+other dependencies:
+
+```bash
+cd engine && make            # builds `perft` and `play`
+./play --sims 200 --plies 10 # one UCI move per line on stdout, e.g. e2e4
+```
+
+This path is deliberately a fallback: uniform priors + material only, so
+its play is weak (quiet positions are near-ties for it). The neural
+network is the real evaluator.
+
+**Python neural search — `part1/inference.py`.** Loads the real trained
+checkpoint (`part1/chessbrain_trained.pt`, 8 blocks x 128 channels) and
+runs the same PUCT search, but with the ResNet's policy head as the priors
+and its value head as the leaf evaluation. The board encoding is exactly
+the training encoding from `part1/pgn_processor.cpp`: planes 0-5 are the
+side-to-move's pieces, 6-11 the opponent's, plane 12 the turn, 13-16
+castling rights, 17 the en-passant square, everything flipped vertically
+when Black is to move; policy indices are `encode_move_flipped`
+(src * 73 + move type, 4672 total). Legality in the tree comes from
+`python-chess`, cross-checked against the C++ movegen in the tests.
+
+```bash
+cd part1
+pip install torch python-chess        # torch CPU wheel is fine
+python inference.py --self-play --sims 64 --plies 8
+python inference.py --fen "r1bqkbnr/pppp1ppp/2n5/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 2 3"
+python inference.py --help            # --sims, --plies, --seed, --show-top-moves
+```
+
+One move per line on stdout (UCI, e.g. `e2e4`); diagnostics (SAN, visit
+counts, root value, network calls) go to stderr.
+
+**Build fix folded in:** as committed, `engine/movegen.cpp` did not
+compile — a stray `/` on its own line before `gen_king_moves` and a stray
+`/` after `return false;` in `make_move`. Both are one-character deletions;
+the move generation logic itself is unchanged, and perft passes at all
+six depths after the fix.
+
+**Tests — `tests/test_phase4.py`** (stdlib only; run from the repo root):
+builds the engine, runs perft depths 1-6, checks the C++ movegen's root
+move set against python-chess, verifies the C++ MCTS plays 10 legal
+plies, checks the Python board/policy encoding against the training
+encoding, and (when torch is installed) loads the real checkpoint and
+runs neural MCTS self-play for 6 legal plies.
